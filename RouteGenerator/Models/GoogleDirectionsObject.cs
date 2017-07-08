@@ -5,7 +5,7 @@ using System.Web;
 
 namespace RouteGenerator.Models
 {
-    public class GoogleDirectionObject
+    public class GoogleDirectionsObject
     {
         public class GeocodedWaypoint
         {

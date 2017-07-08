@@ -26,7 +26,7 @@ namespace RouteGenerator.Controllers
             String origin = latlng;
             String destination = null;
 
-            String placesApiPathUrl = "/maps/api/place/nearbysearch/json?location=" + latlng + "&radius=" + inputDistance + "&keyword=park&key=" + googleMapsApiKey; // Search a radius of the inputDistance for POIs
+            String placesApiPathUrl = "/maps/api/place/nearbysearch/json?location=" + latlng + "&radius=" + inputDistance + "&type=park&key=" + googleMapsApiKey; // Search a radius of the inputDistance for POIs
 
             GoogleDirectionsObject.RootObject googleDirectionObject = null;
             GooglePlacesObject.RootObject googlePlacesObject = null;
@@ -43,6 +43,9 @@ namespace RouteGenerator.Controllers
                 googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
             }
 
+            Route returnRoute = null;
+            int returnRouteDistanceDifference = inputDistance; // Save the return route's distance in separate variable since the total is a sum of an array in the Route object
+
             //Query each POI to find one that is close to the user's input distance
             foreach (GooglePlacesObject.Result r in googlePlacesObject.results)
             {
@@ -56,20 +59,33 @@ namespace RouteGenerator.Controllers
 
                     foreach (Route route in googleDirectionObject.routes.ToList())
                     {
+                        // Calculate the total distance of the route
+                        int currentRouteTotalDistance = 0;
                         foreach (Leg leg in route.legs.ToList())
                         {
+                            currentRouteTotalDistance += leg.distance.value;
+                        }
 
-                            // If the route is within 250m of inputDistance then return, otherwise return the one with the closet distance
-                            if (Math.Abs(leg.distance.value - inputDistance) < 250)
+                        // If the route is within 250m of inputDistance then return, otherwise return the one with the closet distance
+                        if (Math.Abs(currentRouteTotalDistance - inputDistance) < 250)
+                        {
+                            return Ok(route);
+                        }
+                        else
+                        {
+                            int currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
+                            // Save the route which has the closest distance to input distance
+                            if (currentRouteDistanceDifference < returnRouteDistanceDifference)
                             {
-                                return Ok(route);
+                                returnRouteDistanceDifference = currentRouteDistanceDifference;
+                                returnRoute = route;
                             }
                         }
                     }
                 }
             }
 
-            return Ok(googlePlacesObject);
+            return Ok(returnRoute);
         }
     }
 }

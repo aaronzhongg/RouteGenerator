@@ -90,6 +90,7 @@
       <DependentUpon>Global.asax</DependentUpon>
     </Compile>
     <Compile Include="Models\GoogleDirectionsObject.cs" />
+    <Compile Include="Models\GoogleElevationObject.cs" />
     <Compile Include="Models\GooglePlacesObject.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

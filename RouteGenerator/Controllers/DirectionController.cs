@@ -15,12 +15,14 @@ namespace RouteGenerator.Controllers
     public class DirectionsController : ApiController
     {
         static String googleMapsApiKey = "AIzaSyBUbdzIVx06BmduTI3KNeFuABPziBb6bTY";
+        static String googleMapsElevationApiKey = "AIzaSyBF2coZ4mvEw3dkBOkyScnNwydEMrd1gRg";
         String googleMapsBaseUrl = "https://maps.googleapis.com";
         String placesApiPathUrl;
         String directionsApiPathUrl;
+        HttpClient client = new HttpClient();
 
         [HttpGet]
-        public async Task<IHttpActionResult> GenerateRoute(int inputDistance, String latlng)
+        public async Task<IHttpActionResult> GenerateRoute(int inputDistance, String latlng, int inputElevation = 0)
         {
             String origin = latlng;
             String destination = latlng;
@@ -31,7 +33,6 @@ namespace RouteGenerator.Controllers
             GooglePlacesObject.RootObject googlePlacesObject = null;
 
             // Set up HttpClient to call API
-            var client = new HttpClient();
             client.BaseAddress = new Uri(googleMapsBaseUrl);
             client.DefaultRequestHeaders.Accept.Clear();
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -43,8 +44,10 @@ namespace RouteGenerator.Controllers
                 googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
             }
 
+            // Save the return route's distance in separate variable since the total is a sum of an array in the Route object and will be used to find a route close to the input distance
+            int returnRouteDistanceDifference = inputDistance; 
+            int returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
             Route returnRoute = null;
-            int returnRouteDistanceDifference = inputDistance; // Save the return route's distance in separate variable since the total is a sum of an array in the Route object
 
             //Query each POI to find one that is close to the user's input distance
             foreach (GooglePlacesObject.Result r in googlePlacesObject.results)
@@ -67,17 +70,22 @@ namespace RouteGenerator.Controllers
                             currentRouteTotalDistance += leg.distance.value;
                         }
 
-                        // If the route is within 200m of inputDistance then return, otherwise return the one with the closet distance
-                        if (Math.Abs(currentRouteTotalDistance - inputDistance) < 200)
+                        // Check the elevation of the route 
+                        int currentRouteElevationDifference = Math.Abs(await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance) - inputElevation);
+                        int currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
+
+                        // If the route is within 500m of inputDistance then return AND elevation difference is within 200m, otherwise return the one with the closet distance
+                        // TODO: some better algorithm for choosing a route based on distance and elevation
+                        if (currentRouteDistanceDifference < 500 &  currentRouteElevationDifference < 200)
                         {
                             return Ok(route);
                         }
                         else
                         {
-                            int currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
                             // Save the route which has the closest distance to input distance
                             if (currentRouteDistanceDifference < returnRouteDistanceDifference)
                             {
+                                returnRouteElevationDifference = currentRouteElevationDifference;
                                 returnRouteDistanceDifference = currentRouteDistanceDifference;
                                 returnRoute = route;
                             }
@@ -89,6 +97,39 @@ namespace RouteGenerator.Controllers
             return Ok(returnRoute);
         }
 
+        private async Task<int> CheckElevationAsync(String path, int routeDistance)
+        {
+            // Take the elevation for every 200m of the route
+            int numberOfPoints = routeDistance / 200;
+
+            String elevationApiPathUrl = "/maps/api/elevation/json?path=enc:" + path + "&samples=" + numberOfPoints + "&key=" + googleMapsElevationApiKey;
+
+            HttpResponseMessage response = await client.GetAsync(elevationApiPathUrl);
+
+            GoogleElevationObject.RootObject googleElevationObject = null;
+
+            if (response.IsSuccessStatusCode)
+            {
+                googleElevationObject = await response.Content.ReadAsAsync<GoogleElevationObject.RootObject>();
+            }
+
+            double totalElevation = 0;
+            double prevPointElevation = googleElevationObject.results.ElementAt(0).elevation;
+            for (int i = 1; i < googleElevationObject.results.Count; i++) 
+            {
+                GoogleElevationObject.Result r = googleElevationObject.results.ElementAt(i);
+
+                // Ignore the downhill sections 
+                if (prevPointElevation < r.elevation)
+                {
+                    totalElevation += r.elevation;
+                }
+               
+            }
+
+            return (int)totalElevation;
+        }
+
         private String SetDirectionsApiPathUrl(String origin, String destination, String waypoints)
         {
             return "/maps/api/directions/json?origin=" + origin + "&destination=" + destination + "&mode=walking&waypoints=" + waypoints + "&key=" + googleMapsApiKey;
@@ -98,5 +139,6 @@ namespace RouteGenerator.Controllers
         {
             return "/maps/api/place/nearbysearch/json?location=" + latlng + "&radius=" + radius + "&type=park&key=" + googleMapsApiKey;
         }
+
     }
 }

@@ -47,6 +47,7 @@ namespace RouteGenerator.Controllers
             // Save the return route's distance in separate variable since the total is a sum of an array in the Route object and will be used to find a route close to the input distance
             int returnRouteDistanceDifference = inputDistance; 
             int returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
+            double returnRouteIdealness = 10000;
             Route returnRoute = null;
 
             //Query each POI to find one that is close to the user's input distance
@@ -76,24 +77,43 @@ namespace RouteGenerator.Controllers
 
                         // If the route is within 500m of inputDistance then return AND elevation difference is within 200m, otherwise return the one with the closet distance
                         // TODO: some better algorithm for choosing a route based on distance and elevation
-                        if (currentRouteDistanceDifference < 500 &  currentRouteElevationDifference < 200)
+                        //if (currentRouteDistanceDifference < 500 &  currentRouteElevationDifference < 200)
+                        //{
+                        //    return Ok(route);
+                        //}
+                        //else
+                        //{
+                        //    // Save the route which has the closest distance to input distance
+                        //    if (currentRouteDistanceDifference < returnRouteDistanceDifference)
+                        //    {
+                        //        returnRouteElevationDifference = currentRouteElevationDifference;
+                        //        returnRouteDistanceDifference = currentRouteDistanceDifference;
+                        //        returnRoute = route;
+                        //    }
+                        //}
+
+                        double currentRouteIdealness = CalculateRouteIdealness(currentRouteDistanceDifference, currentRouteElevationDifference);
+
+                        if (currentRouteIdealness < 500)
                         {
                             return Ok(route);
                         }
                         else
                         {
-                            // Save the route which has the closest distance to input distance
-                            if (currentRouteDistanceDifference < returnRouteDistanceDifference)
+                            if (currentRouteIdealness < returnRouteIdealness)
                             {
                                 returnRouteElevationDifference = currentRouteElevationDifference;
                                 returnRouteDistanceDifference = currentRouteDistanceDifference;
+                                returnRouteIdealness = currentRouteIdealness;
                                 returnRoute = route;
+
                             }
                         }
                     }
                 }
             }
 
+            // Return best route available 
             return Ok(returnRoute);
         }
 
@@ -124,10 +144,17 @@ namespace RouteGenerator.Controllers
                 {
                     totalElevation += r.elevation;
                 }
-               
+
+                prevPointElevation = r.elevation;
             }
 
             return (int)totalElevation;
+        }
+
+        // Calculates the idealness of a route considering distance difference between route and input distance is of 70% importance and elevation difference is 30%
+        private double CalculateRouteIdealness(int distanceDifference, int elevationDifference)
+        {
+            return (0.7 * distanceDifference) + (0.3 * elevationDifference);
         }
 
         private String SetDirectionsApiPathUrl(String origin, String destination, String waypoints)

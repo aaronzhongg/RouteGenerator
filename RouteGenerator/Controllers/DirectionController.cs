@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web.Http;
 using static RouteGenerator.Models.GoogleDirectionsObject;
@@ -22,7 +23,7 @@ namespace RouteGenerator.Controllers
         HttpClient client = new HttpClient();
 
         [HttpGet]
-        public async Task<IHttpActionResult> GenerateRoute(int inputDistance, String latlng, int inputElevation = 0)
+        public async Task<IHttpActionResult> GenerateRoute(double inputDistance, String latlng, double inputElevation = 0.00)
         {
             String origin = latlng;
             String destination = latlng;
@@ -45,9 +46,11 @@ namespace RouteGenerator.Controllers
             }
 
             // Save the return route's distance in separate variable since the total is a sum of an array in the Route object and will be used to find a route close to the input distance
-            int returnRouteDistanceDifference = inputDistance; 
-            int returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
+            double returnRouteDistanceDifference = inputDistance;
+            double returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
             double returnRouteIdealness = 10000;
+            double returnRouteDistance = 0;
+            double returnRouteElevation = 0;
             Route returnRoute = null;
 
             //Query each POI to find one that is close to the user's input distance
@@ -72,36 +75,22 @@ namespace RouteGenerator.Controllers
                         }
 
                         // Check the elevation of the route 
-                        int currentRouteElevationDifference = Math.Abs(await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance) - inputElevation);
-                        int currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
-
-                        // If the route is within 500m of inputDistance then return AND elevation difference is within 200m, otherwise return the one with the closet distance
-                        // TODO: some better algorithm for choosing a route based on distance and elevation
-                        //if (currentRouteDistanceDifference < 500 &  currentRouteElevationDifference < 200)
-                        //{
-                        //    return Ok(route);
-                        //}
-                        //else
-                        //{
-                        //    // Save the route which has the closest distance to input distance
-                        //    if (currentRouteDistanceDifference < returnRouteDistanceDifference)
-                        //    {
-                        //        returnRouteElevationDifference = currentRouteElevationDifference;
-                        //        returnRouteDistanceDifference = currentRouteDistanceDifference;
-                        //        returnRoute = route;
-                        //    }
-                        //}
+                        double currentRouteElevation = await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance);
+                        double currentRouteElevationDifference = Math.Abs(currentRouteElevation - inputElevation);
+                        double currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
 
                         double currentRouteIdealness = CalculateRouteIdealness(currentRouteDistanceDifference, currentRouteElevationDifference);
 
                         if (currentRouteIdealness < 500)
                         {
-                            return Ok(route);
+                            return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
                         }
                         else
                         {
                             if (currentRouteIdealness < returnRouteIdealness)
                             {
+                                returnRouteDistance = currentRouteTotalDistance;
+                                returnRouteElevation = currentRouteElevation;
                                 returnRouteElevationDifference = currentRouteElevationDifference;
                                 returnRouteDistanceDifference = currentRouteDistanceDifference;
                                 returnRouteIdealness = currentRouteIdealness;
@@ -114,13 +103,13 @@ namespace RouteGenerator.Controllers
             }
 
             // Return best route available 
-            return Ok(returnRoute);
+            return Ok(ProcessReturnObject(returnRoute, returnRouteDistance, returnRouteElevation));
         }
 
-        private async Task<int> CheckElevationAsync(String path, int routeDistance)
+        private async Task<double> CheckElevationAsync(String path, double routeDistance)
         {
             // Take the elevation for every 200m of the route
-            int numberOfPoints = routeDistance / 200;
+            int numberOfPoints = (int)routeDistance / 200;
 
             String elevationApiPathUrl = "/maps/api/elevation/json?path=enc:" + path + "&samples=" + numberOfPoints + "&key=" + googleMapsElevationApiKey;
 
@@ -135,7 +124,7 @@ namespace RouteGenerator.Controllers
 
             double totalElevation = 0;
             double prevPointElevation = googleElevationObject.results.ElementAt(0).elevation;
-            for (int i = 1; i < googleElevationObject.results.Count; i++) 
+            for (int i = 1; i < googleElevationObject.results.Count; i++)
             {
                 GoogleElevationObject.Result r = googleElevationObject.results.ElementAt(i);
 
@@ -148,14 +137,15 @@ namespace RouteGenerator.Controllers
                 prevPointElevation = r.elevation;
             }
 
-            return (int)totalElevation;
+            return Math.Round(totalElevation,2);
         }
 
         // Calculates the idealness of a route considering distance difference between route and input distance is of 70% importance and elevation difference is 30%
-        private double CalculateRouteIdealness(int distanceDifference, int elevationDifference)
+        private double CalculateRouteIdealness(double distanceDifference, double elevationDifference)
         {
             return (0.7 * distanceDifference) + (0.3 * elevationDifference);
         }
+
 
         private String SetDirectionsApiPathUrl(String origin, String destination, String waypoints)
         {
@@ -167,5 +157,50 @@ namespace RouteGenerator.Controllers
             return "/maps/api/place/nearbysearch/json?location=" + latlng + "&radius=" + radius + "&type=park&key=" + googleMapsApiKey;
         }
 
+        private RouteDTO ProcessReturnObject(Route route, double distance, double elevation)
+        {
+            var dto = new RouteDTO();
+            var points = new List<Coordinate>();
+            Coordinate c;
+
+            foreach (Leg leg in route.legs)
+            {
+                foreach (Step step in leg.steps)
+                {
+                    c = new Coordinate()
+                    {
+                        lat = step.start_location.lat,
+                        lng = step.start_location.lng,
+                        instruction = ProcessInstruction(step.html_instructions)
+                    };
+                    points.Add(c);
+                }
+            }
+
+            var endPoint = route.legs.Last().steps.Last();
+
+            //c = new Coordinate()
+            //{
+            //    lat = endPoint.end_location.lat,
+            //    lng = endPoint.end_location.lng,
+            //    instruction = ProcessInstruction(endPoint.html_instructions)
+            //};
+            //points.Add(c);
+
+            dto.points = points;
+            dto.distance = distance;
+            dto.elevation = elevation;
+
+            return dto;
+        }
+
+        private String ProcessInstruction(String instruction)
+        {
+            instruction = Regex.Replace(instruction, @" ?\</.*?\>", "");
+            return Regex.Replace(instruction, @" ?\<.*?\>", " ");
+        }
+
     }
+
+
 }

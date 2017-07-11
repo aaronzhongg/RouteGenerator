@@ -89,6 +89,7 @@
     <Compile Include="Global.asax.cs">
       <DependentUpon>Global.asax</DependentUpon>
     </Compile>
+    <Compile Include="Models\RouteDTO.cs" />
     <Compile Include="Models\GoogleDirectionsObject.cs" />
     <Compile Include="Models\GoogleElevationObject.cs" />
     <Compile Include="Models\GooglePlacesObject.cs" />

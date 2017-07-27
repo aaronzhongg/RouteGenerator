@@ -10,6 +10,7 @@ using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Web.Http;
 using static RouteGenerator.Models.GoogleDirectionsObject;
+using static RouteGenerator.Models.GooglePlacesObject;
 
 namespace RouteGenerator.Controllers
 {
@@ -28,7 +29,7 @@ namespace RouteGenerator.Controllers
             String origin = latlng;
             String destination = latlng;
 
-            placesApiPathUrl = SetPlacesApiPathUrl(latlng, inputDistance.ToString()); // Search a radius of the inputDistance for POIs
+            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (inputDistance/4).ToString()); // Search a radius of the inputDistance for POIs
 
             GoogleDirectionsObject.RootObject googleDirectionObject = null;
             GooglePlacesObject.RootObject googlePlacesObject = null;
@@ -53,49 +54,61 @@ namespace RouteGenerator.Controllers
             double returnRouteElevation = 0;
             Route returnRoute = null;
 
+  
+            
+
             //Query each POI to find one that is close to the user's input distance
-            foreach (GooglePlacesObject.Result r in googlePlacesObject.results)
+            //foreach (GooglePlacesObject.Result r in googlePlacesObject.results)
+            for (int i = googlePlacesObject.results.Count - 1; i >= 0; i--)
             {
-                // Using the returned POI as a waypoints
-                String waypoints = r.geometry.location.lat + "," + r.geometry.location.lng;
-                directionsApiPathUrl = SetDirectionsApiPathUrl(origin, destination, waypoints);
-                response = await client.GetAsync(directionsApiPathUrl);
-
-                if (response.IsSuccessStatusCode)
+                Result firstResult = googlePlacesObject.results.ElementAt(i);
+                String firstWaypoint = firstResult.geometry.location.lat + "," + firstResult.geometry.location.lng;
+                for (int j = i; j >= 0; j--)
                 {
-                    googleDirectionObject = await response.Content.ReadAsAsync<GoogleDirectionsObject.RootObject>();
+                    Result secondResult = googlePlacesObject.results.ElementAt(j); 
+                    // Using the returned POI as a waypoints
+                    String secondWaypoint = secondResult.geometry.location.lat + "," + secondResult.geometry.location.lng;
 
-                    foreach (Route route in googleDirectionObject.routes.ToList())
+                    String waypoints = firstWaypoint + "|" + secondWaypoint;
+                    directionsApiPathUrl = SetDirectionsApiPathUrl(origin, destination, waypoints);
+                    response = await client.GetAsync(directionsApiPathUrl);
+
+                    if (response.IsSuccessStatusCode)
                     {
-                        // Calculate the total distance of the route
-                        int currentRouteTotalDistance = 0;
-                        foreach (Leg leg in route.legs.ToList())
-                        {
-                            currentRouteTotalDistance += leg.distance.value;
-                        }
+                        googleDirectionObject = await response.Content.ReadAsAsync<GoogleDirectionsObject.RootObject>();
 
-                        // Check the elevation of the route 
-                        double currentRouteElevation = await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance);
-                        double currentRouteElevationDifference = Math.Abs(currentRouteElevation - inputElevation);
-                        double currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
-
-                        double currentRouteIdealness = CalculateRouteIdealness(currentRouteDistanceDifference, currentRouteElevationDifference);
-
-                        if (currentRouteIdealness < 500)
+                        foreach (Route route in googleDirectionObject.routes.ToList())
                         {
-                            return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
-                        }
-                        else
-                        {
-                            if (currentRouteIdealness < returnRouteIdealness)
+                            // Calculate the total distance of the route
+                            int currentRouteTotalDistance = 0;
+                            foreach (Leg leg in route.legs.ToList())
                             {
-                                returnRouteDistance = currentRouteTotalDistance;
-                                returnRouteElevation = currentRouteElevation;
-                                returnRouteElevationDifference = currentRouteElevationDifference;
-                                returnRouteDistanceDifference = currentRouteDistanceDifference;
-                                returnRouteIdealness = currentRouteIdealness;
-                                returnRoute = route;
+                                currentRouteTotalDistance += leg.distance.value;
+                            }
 
+                            // Check the elevation of the route 
+                            double currentRouteElevation = await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance);
+                            double currentRouteElevationDifference = Math.Abs(currentRouteElevation - inputElevation);
+                            double currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
+
+                            double currentRouteIdealness = CalculateRouteIdealness(currentRouteDistanceDifference, currentRouteElevationDifference);
+
+                            if (currentRouteIdealness < 500)
+                            {
+                                return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
+                            }
+                            else
+                            {
+                                if (currentRouteIdealness < returnRouteIdealness)
+                                {
+                                    returnRouteDistance = currentRouteTotalDistance;
+                                    returnRouteElevation = currentRouteElevation;
+                                    returnRouteElevationDifference = currentRouteElevationDifference;
+                                    returnRouteDistanceDifference = currentRouteDistanceDifference;
+                                    returnRouteIdealness = currentRouteIdealness;
+                                    returnRoute = route;
+
+                                }
                             }
                         }
                     }
@@ -121,7 +134,7 @@ namespace RouteGenerator.Controllers
             {
                 googleElevationObject = await response.Content.ReadAsAsync<GoogleElevationObject.RootObject>();
             }
-
+            
             double totalElevation = 0;
             double prevPointElevation = googleElevationObject.results.ElementAt(0).elevation;
             for (int i = 1; i < googleElevationObject.results.Count; i++)

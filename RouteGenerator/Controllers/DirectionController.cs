@@ -29,7 +29,7 @@ namespace RouteGenerator.Controllers
             String origin = latlng;
             String destination = latlng;
 
-            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (inputDistance/4).ToString()); // Search a radius of the inputDistance for POIs
+            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (inputDistance/4).ToString()); // Search a radius of half the inputDistance for POI to prevent fetching too many
 
             GoogleDirectionsObject.RootObject googleDirectionObject = null;
             GooglePlacesObject.RootObject googlePlacesObject = null;
@@ -45,17 +45,26 @@ namespace RouteGenerator.Controllers
             {
                 googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
             }
-
+            
+            //If leass than 2 POIs were found, increase the search radius
+            if (googlePlacesObject.results.Count < 2)
+            {
+                placesApiPathUrl = SetPlacesApiPathUrl(latlng, (inputDistance/2).ToString());
+                response = await client.GetAsync(placesApiPathUrl);
+                if (response.IsSuccessStatusCode)
+                {
+                    googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
+                }
+            }
             // Save the return route's distance in separate variable since the total is a sum of an array in the Route object and will be used to find a route close to the input distance
             double returnRouteDistanceDifference = inputDistance;
             double returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
             double returnRouteIdealness = 10000;
             double returnRouteDistance = 0;
             double returnRouteElevation = 0;
+            List<RouteDTO> possibleRoutes = new List<RouteDTO>();
+            Random rnd = new Random();
             Route returnRoute = null;
-
-  
-            
 
             //Query each POI to find one that is close to the user's input distance
             //foreach (GooglePlacesObject.Result r in googlePlacesObject.results)
@@ -88,14 +97,21 @@ namespace RouteGenerator.Controllers
 
                             // Check the elevation of the route 
                             double currentRouteElevation = await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance);
-                            double currentRouteElevationDifference = Math.Abs(currentRouteElevation - inputElevation);
-                            double currentRouteDistanceDifference = Math.Abs(currentRouteTotalDistance - inputDistance);
+                            double currentRouteElevationDifference = Math.Abs(100 * (currentRouteElevation - inputElevation)/inputElevation);
+                            double currentRouteDistanceDifference = Math.Abs(100 * (currentRouteTotalDistance - inputDistance)/inputDistance);
 
                             double currentRouteIdealness = CalculateRouteIdealness(currentRouteDistanceDifference, currentRouteElevationDifference);
 
-                            if (currentRouteIdealness < 500)
+                            if (currentRouteIdealness < 10)     //Overall at least 80% ideal
                             {
-                                return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
+                                //return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
+                                possibleRoutes.Add(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
+                                if(possibleRoutes.Count >= 5)
+                                {
+                                    //Return a random route if there are 5 or more viable routes
+                                    int index = rnd.Next(possibleRoutes.Count);
+                                    return Ok(possibleRoutes[index]);
+                                }
                             }
                             else
                             {
@@ -114,8 +130,13 @@ namespace RouteGenerator.Controllers
                     }
                 }
             }
-
-            // Return best route available 
+            // Return a random route from the possible list of routes
+            if (possibleRoutes.Count > 0)
+            {
+                int index = rnd.Next(possibleRoutes.Count);
+                return Ok(possibleRoutes[index]);
+            }
+            // Otherwise Return best route available 
             return Ok(ProcessReturnObject(returnRoute, returnRouteDistance, returnRouteElevation));
         }
 
@@ -156,7 +177,7 @@ namespace RouteGenerator.Controllers
         // Calculates the idealness of a route considering distance difference between route and input distance is of 70% importance and elevation difference is 30%
         private double CalculateRouteIdealness(double distanceDifference, double elevationDifference)
         {
-            return (0.7 * distanceDifference) + (0.3 * elevationDifference);
+            return (0.8 * distanceDifference) + (0.2 * elevationDifference);
         }
 
 

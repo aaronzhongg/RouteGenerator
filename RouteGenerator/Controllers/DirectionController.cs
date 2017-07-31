@@ -56,6 +56,13 @@ namespace RouteGenerator.Controllers
                     googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
                 }
             }
+            Random rnd = new Random();
+            //Limit the number of POIs to 10 to prevent long waits
+            while (googlePlacesObject.results.Count > 15)
+            {
+                googlePlacesObject.results.RemoveAt(rnd.Next((googlePlacesObject.results.Count)));
+            }
+
             // Save the return route's distance in separate variable since the total is a sum of an array in the Route object and will be used to find a route close to the input distance
             double returnRouteDistanceDifference = inputDistance;
             double returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
@@ -63,7 +70,7 @@ namespace RouteGenerator.Controllers
             double returnRouteDistance = 0;
             double returnRouteElevation = 0;
             List<RouteDTO> possibleRoutes = new List<RouteDTO>();
-            Random rnd = new Random();
+            
             Route returnRoute = null;
 
             //Query each POI to find one that is close to the user's input distance

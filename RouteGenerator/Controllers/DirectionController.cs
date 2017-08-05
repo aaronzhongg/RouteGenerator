@@ -149,36 +149,43 @@ namespace RouteGenerator.Controllers
 
         private async Task<double> CheckElevationAsync(String path, double routeDistance)
         {
-            // Take the elevation for every 200m of the route
-            int numberOfPoints = (int)routeDistance / 200;
 
-            String elevationApiPathUrl = "/maps/api/elevation/json?path=enc:" + path + "&samples=" + numberOfPoints + "&key=" + googleMapsElevationApiKey;
+                // Take the elevation for every 200m of the route
+                int numberOfPoints = (int)routeDistance / 200;
 
-            HttpResponseMessage response = await client.GetAsync(elevationApiPathUrl);
-
-            GoogleElevationObject.RootObject googleElevationObject = null;
-
-            if (response.IsSuccessStatusCode)
+            if (numberOfPoints > 2)
             {
-                googleElevationObject = await response.Content.ReadAsAsync<GoogleElevationObject.RootObject>();
-            }
-            
-            double totalElevation = 0;
-            double prevPointElevation = googleElevationObject.results.ElementAt(0).elevation;
-            for (int i = 1; i < googleElevationObject.results.Count; i++)
-            {
-                GoogleElevationObject.Result r = googleElevationObject.results.ElementAt(i);
 
-                // Ignore the downhill sections 
-                if (prevPointElevation < r.elevation)
+                String elevationApiPathUrl = "/maps/api/elevation/json?path=enc:" + path + "&samples=" + numberOfPoints + "&key=" + googleMapsElevationApiKey;
+
+                HttpResponseMessage response = await client.GetAsync(elevationApiPathUrl);
+
+                GoogleElevationObject.RootObject googleElevationObject = null;
+
+                if (response.IsSuccessStatusCode)
                 {
-                    totalElevation += r.elevation;
+                    googleElevationObject = await response.Content.ReadAsAsync<GoogleElevationObject.RootObject>();
                 }
 
-                prevPointElevation = r.elevation;
+                double totalElevation = 0;
+                double prevPointElevation = googleElevationObject.results.ElementAt(0).elevation;
+                for (int i = 1; i < googleElevationObject.results.Count; i++)
+                {
+                    GoogleElevationObject.Result r = googleElevationObject.results.ElementAt(i);
+
+                    // Ignore the downhill sections 
+                    if (prevPointElevation < r.elevation)
+                    {
+                        totalElevation += r.elevation;
+                    }
+
+                    prevPointElevation = r.elevation;
+                }
+
+                return Math.Round(totalElevation, 2);
             }
 
-            return Math.Round(totalElevation,2);
+            return 0.00;
         }
 
         // Calculates the idealness of a route considering distance difference between route and input distance is of 70% importance and elevation difference is 30%

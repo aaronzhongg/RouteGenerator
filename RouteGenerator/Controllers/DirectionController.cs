@@ -28,8 +28,8 @@ namespace RouteGenerator.Controllers
         {
             String origin = latlng;
             String destination = latlng;
-
-            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (inputDistance/4).ToString()); // Search a radius of half the inputDistance for POI to prevent fetching too many
+            double searchRadius = inputDistance / 3;
+            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (searchRadius).ToString()); // Search a radius of half the inputDistance for POI to prevent fetching too many
 
             GoogleDirectionsObject.RootObject googleDirectionObject = null;
             GooglePlacesObject.RootObject googlePlacesObject = null;
@@ -45,17 +45,19 @@ namespace RouteGenerator.Controllers
             {
                 googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
             }
-            
+
+        
+       
             //If leass than 2 POIs were found, increase the search radius
-            if (googlePlacesObject.results.Count < 2)
+
+            searchRadius *= 2;
+            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (searchRadius).ToString());
+            response = await client.GetAsync(placesApiPathUrl);
+            if (response.IsSuccessStatusCode)
             {
-                placesApiPathUrl = SetPlacesApiPathUrl(latlng, (inputDistance/2).ToString());
-                response = await client.GetAsync(placesApiPathUrl);
-                if (response.IsSuccessStatusCode)
-                {
-                    googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
-                }
+                googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
             }
+            
             Random rnd = new Random();
             //Limit the number of POIs to 10 to prevent long waits
             while (googlePlacesObject.results.Count > 15)
@@ -113,7 +115,7 @@ namespace RouteGenerator.Controllers
                             {
                                 //return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
                                 possibleRoutes.Add(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
-                                if(possibleRoutes.Count >= 5)
+                                if(possibleRoutes.Count >= 3)
                                 {
                                     //Return a random route if there are 5 or more viable routes
                                     int index = rnd.Next(possibleRoutes.Count);

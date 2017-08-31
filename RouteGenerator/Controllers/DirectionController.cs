@@ -26,127 +26,133 @@ namespace RouteGenerator.Controllers
         [HttpGet]
         public async Task<IHttpActionResult> GenerateRoute(double inputDistance, String latlng, double inputElevation = 0.00)
         {
-            String origin = latlng;
-            String destination = latlng;
-            double searchRadius = inputDistance / 3;
-            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (searchRadius).ToString()); // Search a radius of half the inputDistance for POI to prevent fetching too many
-
-            GoogleDirectionsObject.RootObject googleDirectionObject = null;
-            GooglePlacesObject.RootObject googlePlacesObject = null;
-
-            // Set up HttpClient to call API
-            client.BaseAddress = new Uri(googleMapsBaseUrl);
-            client.DefaultRequestHeaders.Accept.Clear();
-            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-            // Get POIs 
-            HttpResponseMessage response = await client.GetAsync(placesApiPathUrl);
-            if (response.IsSuccessStatusCode)
+            if (latlng != null)
             {
-                googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
-            }
+                String origin = latlng;
+                String destination = latlng;
+                double searchRadius = inputDistance / 3;
+                placesApiPathUrl = SetPlacesApiPathUrl(latlng, (searchRadius).ToString()); // Search a radius of half the inputDistance for POI to prevent fetching too many
 
-        
-       
-            //If leass than 2 POIs were found, increase the search radius
+                GoogleDirectionsObject.RootObject googleDirectionObject = null;
+                GooglePlacesObject.RootObject googlePlacesObject = null;
 
-            searchRadius *= 2;
-            placesApiPathUrl = SetPlacesApiPathUrl(latlng, (searchRadius).ToString());
-            response = await client.GetAsync(placesApiPathUrl);
-            if (response.IsSuccessStatusCode)
-            {
-                googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
-            }
-            
-            Random rnd = new Random();
-            //Limit the number of POIs to 10 to prevent long waits
-            while (googlePlacesObject.results.Count > 15)
-            {
-                googlePlacesObject.results.RemoveAt(rnd.Next((googlePlacesObject.results.Count)));
-            }
+                // Set up HttpClient to call API
+                client.BaseAddress = new Uri(googleMapsBaseUrl);
+                client.DefaultRequestHeaders.Accept.Clear();
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            // Save the return route's distance in separate variable since the total is a sum of an array in the Route object and will be used to find a route close to the input distance
-            double returnRouteDistanceDifference = inputDistance;
-            double returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
-            double returnRouteIdealness = 10000;
-            double returnRouteDistance = 0;
-            double returnRouteElevation = 0;
-            List<RouteDTO> possibleRoutes = new List<RouteDTO>();
-            
-            Route returnRoute = null;
-
-            //Query each POI to find one that is close to the user's input distance
-            //foreach (GooglePlacesObject.Result r in googlePlacesObject.results)
-            for (int i = googlePlacesObject.results.Count - 1; i >= 0; i--)
-            {
-                Result firstResult = googlePlacesObject.results.ElementAt(i);
-                String firstWaypoint = firstResult.geometry.location.lat + "," + firstResult.geometry.location.lng;
-                for (int j = i; j >= 0; j--)
+                // Get POIs 
+                HttpResponseMessage response = await client.GetAsync(placesApiPathUrl);
+                if (response.IsSuccessStatusCode)
                 {
-                    Result secondResult = googlePlacesObject.results.ElementAt(j); 
-                    // Using the returned POI as a waypoints
-                    String secondWaypoint = secondResult.geometry.location.lat + "," + secondResult.geometry.location.lng;
+                    googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
+                }
 
-                    String waypoints = firstWaypoint + "|" + secondWaypoint;
-                    directionsApiPathUrl = SetDirectionsApiPathUrl(origin, destination, waypoints);
-                    response = await client.GetAsync(directionsApiPathUrl);
 
+
+                //If leass than 2 POIs were found, increase the search radius
+                if (googlePlacesObject.results.Count < 2)
+                {
+                    searchRadius *= 2;
+                    placesApiPathUrl = SetPlacesApiPathUrl(latlng, (searchRadius).ToString());
+                    response = await client.GetAsync(placesApiPathUrl);
                     if (response.IsSuccessStatusCode)
                     {
-                        googleDirectionObject = await response.Content.ReadAsAsync<GoogleDirectionsObject.RootObject>();
+                        googlePlacesObject = await response.Content.ReadAsAsync<GooglePlacesObject.RootObject>();
+                    }
+                }
+                Random rnd = new Random();
+                //Limit the number of POIs to 10 to prevent long waits
+                while (googlePlacesObject.results.Count > 15)
+                {
+                    googlePlacesObject.results.RemoveAt(rnd.Next((googlePlacesObject.results.Count)));
+                }
 
-                        foreach (Route route in googleDirectionObject.routes.ToList())
+                // Save the return route's distance in separate variable since the total is a sum of an array in the Route object and will be used to find a route close to the input distance
+                double returnRouteDistanceDifference = inputDistance;
+                double returnRouteElevationDifference = 10000; // Save elevation for similar reasons to distance
+                double returnRouteIdealness = 10000;
+                double returnRouteDistance = 0;
+                double returnRouteElevation = 0;
+                List<RouteDTO> possibleRoutes = new List<RouteDTO>();
+
+                Route returnRoute = null;
+
+                //Query each POI to find one that is close to the user's input distance
+                //foreach (GooglePlacesObject.Result r in googlePlacesObject.results)
+                for (int i = googlePlacesObject.results.Count - 1; i >= 0; i--)
+                {
+                    Result firstResult = googlePlacesObject.results.ElementAt(i);
+                    String firstWaypoint = firstResult.geometry.location.lat + "," + firstResult.geometry.location.lng;
+                    for (int j = i; j >= 0; j--)
+                    {
+                        Result secondResult = googlePlacesObject.results.ElementAt(j);
+                        // Using the returned POI as a waypoints
+                        String secondWaypoint = secondResult.geometry.location.lat + "," + secondResult.geometry.location.lng;
+
+                        String waypoints = firstWaypoint + "|" + secondWaypoint;
+                        directionsApiPathUrl = SetDirectionsApiPathUrl(origin, destination, waypoints);
+                        response = await client.GetAsync(directionsApiPathUrl);
+
+                        if (response.IsSuccessStatusCode)
                         {
-                            // Calculate the total distance of the route
-                            int currentRouteTotalDistance = 0;
-                            foreach (Leg leg in route.legs.ToList())
+                            googleDirectionObject = await response.Content.ReadAsAsync<GoogleDirectionsObject.RootObject>();
+
+                            foreach (Route route in googleDirectionObject.routes.ToList())
                             {
-                                currentRouteTotalDistance += leg.distance.value;
-                            }
-
-                            // Check the elevation of the route 
-                            double currentRouteElevation = await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance);
-                            double currentRouteElevationDifference = Math.Abs(100 * (currentRouteElevation - inputElevation)/inputElevation);
-                            double currentRouteDistanceDifference = Math.Abs(100 * (currentRouteTotalDistance - inputDistance)/inputDistance);
-
-                            double currentRouteIdealness = CalculateRouteIdealness(currentRouteDistanceDifference, currentRouteElevationDifference);
-
-                            if (currentRouteIdealness < 10)     //Overall at least 80% ideal
-                            {
-                                //return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
-                                possibleRoutes.Add(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
-                                if(possibleRoutes.Count >= 3)
+                                // Calculate the total distance of the route
+                                int currentRouteTotalDistance = 0;
+                                foreach (Leg leg in route.legs.ToList())
                                 {
-                                    //Return a random route if there are 5 or more viable routes
-                                    int index = rnd.Next(possibleRoutes.Count);
-                                    return Ok(possibleRoutes[index]);
+                                    currentRouteTotalDistance += leg.distance.value;
                                 }
-                            }
-                            else
-                            {
-                                if (currentRouteIdealness < returnRouteIdealness)
-                                {
-                                    returnRouteDistance = currentRouteTotalDistance;
-                                    returnRouteElevation = currentRouteElevation;
-                                    returnRouteElevationDifference = currentRouteElevationDifference;
-                                    returnRouteDistanceDifference = currentRouteDistanceDifference;
-                                    returnRouteIdealness = currentRouteIdealness;
-                                    returnRoute = route;
 
+                                // Check the elevation of the route 
+                                double currentRouteElevation = await CheckElevationAsync(route.overview_polyline.points, currentRouteTotalDistance);
+                                double currentRouteElevationDifference = Math.Abs(100 * (currentRouteElevation - inputElevation) / inputElevation);
+                                double currentRouteDistanceDifference = Math.Abs(100 * (currentRouteTotalDistance - inputDistance) / inputDistance);
+
+                                double currentRouteIdealness = CalculateRouteIdealness(currentRouteDistanceDifference, currentRouteElevationDifference);
+
+                                if (currentRouteIdealness < 10)     //Overall at least 80% ideal
+                                {
+                                    //return Ok(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
+                                    possibleRoutes.Add(ProcessReturnObject(route, currentRouteTotalDistance, currentRouteElevation));
+                                    if (possibleRoutes.Count >= 3)
+                                    {
+                                        //Return a random route if there are 5 or more viable routes
+                                        int index = rnd.Next(possibleRoutes.Count);
+                                        return Ok(possibleRoutes[index]);
+                                    }
+                                }
+                                else
+                                {
+                                    if (currentRouteIdealness < returnRouteIdealness)
+                                    {
+                                        returnRouteDistance = currentRouteTotalDistance;
+                                        returnRouteElevation = currentRouteElevation;
+                                        returnRouteElevationDifference = currentRouteElevationDifference;
+                                        returnRouteDistanceDifference = currentRouteDistanceDifference;
+                                        returnRouteIdealness = currentRouteIdealness;
+                                        returnRoute = route;
+
+                                    }
                                 }
                             }
                         }
                     }
                 }
+                // Return a random route from the possible list of routes
+                if (possibleRoutes.Count > 0)
+                {
+                    int index = rnd.Next(possibleRoutes.Count);
+                    return Ok(possibleRoutes[index]);
+                }
+                // Otherwise Return best route available 
+                return Ok(ProcessReturnObject(returnRoute, returnRouteDistance, returnRouteElevation));
             }
-            // Return a random route from the possible list of routes
-            if (possibleRoutes.Count > 0)
-            {
-                int index = rnd.Next(possibleRoutes.Count);
-                return Ok(possibleRoutes[index]);
-            }
-            // Otherwise Return best route available 
-            return Ok(ProcessReturnObject(returnRoute, returnRouteDistance, returnRouteElevation));
+
+            return Content(HttpStatusCode.BadRequest, "Error: check parameters");
         }
 
         private async Task<double> CheckElevationAsync(String path, double routeDistance)
